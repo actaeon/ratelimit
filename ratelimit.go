@@ -1,55 +1,76 @@
 package limit
 
 import (
-	"io"
-
 	log "github.com/Sirupsen/logrus"
 	"golang.org/x/net/context"
 	"golang.org/x/time/rate"
 )
 
-func NewRateLimiter(limit rate.Limit, burst, bufSize int) (io.Reader, io.Writer) {
+type RateLimiter interface {
+	Start()
+	GetMetrics() map[string]uint64
+	Read(p []byte) (n int, err error)
+	Write(p []byte) (n int, err error)
+}
 
-	inRd, inWr := io.Pipe()
-	outRd, outWr := io.Pipe()
-	limiter := rate.NewLimiter(rate.Limit(limit), burst)
+type rateLimiter struct {
+	droppedBytes    uint64
+	droppedMessages uint64
+	successBytes    uint64
+	successMessages uint64
+	inChan          chan []byte
+	outChan         chan []byte
+	limiter         *rate.Limiter
+}
 
-	outChan := make(chan []byte)
+func (rl *rateLimiter) GetMetrics() map[string]uint64 {
+	return map[string]uint64{
+		"droppedBytes":    rl.droppedBytes,
+		"droppedMessages": rl.droppedMessages,
+		"successBytes":    rl.successBytes,
+		"successMessages": rl.successMessages,
+	}
+}
 
+func (rl *rateLimiter) Start() {
 	go func() {
-		for {
-			data := make([]byte, bufSize)
-			var n int
-			var err error
-			if n, err = inRd.Read(data); err != nil {
-				log.Errorf("Error Reading from input pipe: %s", err.Error())
-				return
-			}
-			log.Debugf("RateLimiter read %d bytes", n)
-			select {
-			case outChan <- data[:n]:
-				log.Debugf("RateLimiter wrote %d bytes", len(data))
-			default:
-			}
-		}
-	}()
-
-	go func() {
-		for {
-			if err := limiter.Wait(context.TODO()); err != nil {
+		for data := range rl.inChan {
+			if err := rl.limiter.Wait(context.TODO()); err != nil {
 				log.Errorf("Error in token bucket: %s", err.Error())
 				return
 			}
-			data := <-outChan
-			log.Debugf("On Token, read %d bytes from channel", len(data))
-			_, err := outWr.Write(data)
-			log.Debugf("On Token, wrote %d bytes to output pipe", len(data))
-			if err != nil {
-				log.Errorf("Error writing to output pipe: %s", err.Error())
-				return
-			}
+			rl.outChan <- data
 		}
 	}()
+}
 
-	return outRd, inWr
+func (rl *rateLimiter) Stop() {
+	close(rl.inChan)
+}
+
+func (rl *rateLimiter) Read(p []byte) (n int, err error) {
+	p = <-rl.outChan
+	return len(p), nil
+}
+
+func (rl *rateLimiter) Write(p []byte) (int, error) {
+	select {
+	case rl.inChan <- p:
+		rl.successMessages = rl.successMessages + 1
+		rl.successBytes = rl.successBytes + uint64(len(p))
+	default:
+		rl.droppedMessages = rl.droppedMessages + 1
+		rl.droppedBytes = rl.droppedBytes + uint64(len(p))
+	}
+	return len(p), nil
+}
+
+func NewRateLimiter(limit rate.Limit, burst, bufSize int) RateLimiter {
+	rl := &rateLimiter{
+		inChan:  make(chan []byte),
+		outChan: make(chan []byte),
+		limiter: rate.NewLimiter(rate.Limit(limit), burst),
+	}
+	return rl
+
 }
