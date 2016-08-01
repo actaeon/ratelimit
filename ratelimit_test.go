@@ -1,8 +1,9 @@
 package limit
 
 import (
+	"fmt"
 	"io/ioutil"
-	"reflect"
+	// "reflect"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -12,24 +13,16 @@ import (
 
 func TestNewRateLimiter(t *testing.T) {
 	log.SetOutput(ioutil.Discard)
-	out, in := NewRateLimiter(rate.Every(1*time.Second), 1, 100)
+	rl := NewRateLimiter(rate.Every(1*time.Second), 1, 100)
+	rl.Start()
 	collector := [][]byte{}
-	ticker := time.NewTicker(10 * time.Millisecond)
-	count := 100
-
-	expected := [][]uint8{
-		[]uint8{
-			0x30, 0x31, 0x32, 0x33,
-			0x34, 0x35, 0x36, 0x37,
-			0x38, 0x39, 0x61, 0x62,
-			0x63, 0x64, 0x65, 0x66,
-		},
-	}
+	ticker := time.NewTicker(1 * time.Millisecond)
+	count := 5500
 
 	go func() {
 		for {
 			data := make([]byte, 4096)
-			n, err := out.Read(data)
+			n, err := rl.Read(data)
 			if err != nil {
 				t.Fatalf("Error reading from pipe: %s", err.Error())
 			}
@@ -40,14 +33,18 @@ func TestNewRateLimiter(t *testing.T) {
 	for i := 0; i < count; i++ {
 		data := []byte("0123456789abcdef")
 
-		_, err := in.Write(data)
+		_, err := rl.Write(data)
 		if err != nil {
 			t.Fatalf("Error writing to pipe: %s", err.Error())
 		}
 		<-ticker.C
 	}
 
-	if !reflect.DeepEqual(collector, expected) {
-		t.Fail()
+	for k, v := range rl.GetMetrics() {
+		fmt.Printf("%s: %d\n", k, v)
+	}
+
+	for _, row := range collector {
+		fmt.Println(string(row))
 	}
 }
