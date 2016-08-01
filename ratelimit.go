@@ -8,23 +8,23 @@ import (
 
 type RateLimiter interface {
 	Start()
-	GetMetrics() map[string]uint64
+	GetMetrics() map[string]uint
 	Read(p []byte) (n int, err error)
 	Write(p []byte) (n int, err error)
 }
 
 type rateLimiter struct {
-	droppedBytes    uint64
-	droppedMessages uint64
-	successBytes    uint64
-	successMessages uint64
+	droppedBytes    uint
+	droppedMessages uint
+	successBytes    uint
+	successMessages uint
 	inChan          chan []byte
 	outChan         chan []byte
 	limiter         *rate.Limiter
 }
 
-func (rl *rateLimiter) GetMetrics() map[string]uint64 {
-	return map[string]uint64{
+func (rl *rateLimiter) GetMetrics() map[string]uint {
+	return map[string]uint{
 		"droppedBytes":    rl.droppedBytes,
 		"droppedMessages": rl.droppedMessages,
 		"successBytes":    rl.successBytes,
@@ -57,10 +57,10 @@ func (rl *rateLimiter) Write(p []byte) (int, error) {
 	select {
 	case rl.inChan <- p:
 		rl.successMessages = rl.successMessages + 1
-		rl.successBytes = rl.successBytes + uint64(len(p))
+		rl.successBytes = rl.successBytes + uint(len(p))
 	default:
 		rl.droppedMessages = rl.droppedMessages + 1
-		rl.droppedBytes = rl.droppedBytes + uint64(len(p))
+		rl.droppedBytes = rl.droppedBytes + uint(len(p))
 	}
 	return len(p), nil
 }
