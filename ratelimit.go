@@ -30,7 +30,6 @@ func NewRateLimiter(limit rate.Limit, burst, bufSize int) (io.Reader, io.Writer)
 			case outChan <- data[:n]:
 				log.Debugf("RateLimiter wrote %d bytes", len(data))
 			default:
-				log.Warnf("No token for message, dropping %d bytes", len(data))
 			}
 		}
 	}()
