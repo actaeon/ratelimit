@@ -7,6 +7,7 @@ import (
 )
 
 type RateLimiter interface {
+	Stop()
 	Start()
 	GetMetrics() map[string]int64
 	Read(p []byte) (n int, err error)
